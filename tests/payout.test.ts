@@ -45,7 +45,7 @@ describe("round payouts", () => {
     const rules: Rules = { ...DEFAULT_RULES };
     const shoe = makeShoe(["6", "6", "5", "10", "10", "9"]);
     const round = playRound(shoe, rules, bet, 1000);
-    expect(round.hands[0].hand.doubled).toBe(true);
+    expect(round.hands[0].doubled).toBe(true);
     expect(round.net).toBe(20);
   });
 
