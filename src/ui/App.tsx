@@ -68,35 +68,73 @@ function HouseEdge({ evPerHand, bet }: { evPerHand: number; bet: number }) {
 }
 
 function HistogramChart({ histogram }: { histogram: Histogram }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const element = containerRef.current;
+    if (!element) {
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
+
   if (histogram.counts.length === 0) {
     return <p className="text-sm text-slate-400">Run a simulation to see the distribution.</p>;
   }
-  const width = 420;
+
+  const defaultWidth = 420;
+  const minBarWidth = 18;
+  const horizontalPadding = 8;
+  const availableWidth = containerWidth > 0 ? containerWidth : defaultWidth;
+  const requiredWidth = histogram.counts.length * minBarWidth + horizontalPadding * 2;
+  const width = Math.max(availableWidth, requiredWidth);
   const height = 160;
   const maxCount = Math.max(...histogram.counts);
   const barWidth = width / histogram.counts.length;
+
   return (
-    <svg width={width} height={height} className="bg-slate-900 rounded-md">
-      {histogram.counts.map((count, idx) => {
-        const barHeight = maxCount === 0 ? 0 : (count / maxCount) * (height - 20);
-        const x = idx * barWidth;
-        const y = height - barHeight - 10;
-        return (
-          <g key={idx}>
-            <rect
-              x={x + 4}
-              y={y}
-              width={barWidth - 8}
-              height={barHeight}
-              className="fill-emerald-400/80"
-            />
-            <text x={x + barWidth / 2} y={height - 2} textAnchor="middle" className="fill-slate-400 text-[10px]">
-              {Math.round(histogram.bins[idx])}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+    <div ref={containerRef} className="relative w-full overflow-x-auto">
+      <svg width={width} height={height} className="bg-slate-900 rounded-md">
+        {histogram.counts.map((count, idx) => {
+          const barHeight = maxCount === 0 ? 0 : (count / maxCount) * (height - 20);
+          const x = idx * barWidth;
+          const y = height - barHeight - 10;
+          return (
+            <g key={idx}>
+              <rect
+                x={x + horizontalPadding / 2}
+                y={y}
+                width={barWidth - horizontalPadding}
+                height={barHeight}
+                className="fill-emerald-400/80"
+              />
+              <text
+                x={x + barWidth / 2}
+                y={height - 2}
+                textAnchor="middle"
+                className="fill-slate-400 text-[10px]"
+              >
+                {Math.round(histogram.bins[idx])}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 
