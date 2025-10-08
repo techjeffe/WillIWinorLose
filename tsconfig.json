@@ -1,10 +1,8 @@
 {
-  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["DOM", "DOM.Iterable", "ES2020"],
-    "jsx": "react-jsx",
-    "types": ["vitest", "vite/client"]
+    "outDir": "dist",
+    "declaration": false
   },
-  "include": ["src", "core", "tests", "vitest.setup.ts"],
-  "exclude": ["vite.config.ts", "vitest.config.ts"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "vite.config.ts", "vitest.config.ts"]
 }
