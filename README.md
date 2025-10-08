@@ -26,8 +26,6 @@ The development server runs on [http://localhost:5173](http://localhost:5173) by
 - **Basic-strategy engine** (S17/H17 aware) covering hard, soft, and pair decisions with surrender support.
 - **Play mode** animates each card and action, tracks bankroll, and shows the full decision log.
 - **Simulate mode** offloads Monte-Carlo trials to a Web Worker and reports EV, variance, 95% confidence interval, risk of ruin, and histogram/time-series charts.
-- **Responsive histogram** renders on a high-DPI canvas that stretches with the layout and includes a vertical scale control for zooming into distribution tails.
-- **Unified hand history** logs every animated round and the first trial of each simulation, making it easy to review outcomes alongside bankroll changes.
 - **Seeded RNG** (Mulberry32) for reproducible runs shared between play and simulate modes.
 - **CSV export** of trial-level simulation results.
 - **Unit tests** for strategy edges, payouts (blackjack, doubles, splits, surrender), dealer rule differences, and shoe penetration reshuffles.

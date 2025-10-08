@@ -47,7 +47,6 @@ export interface SimConfig {
   seed?: number;
   trials?: number;
   betSpread?: number[];
-  captureFirstTrial?: boolean;
 }
 
 export interface TrialResult {
@@ -55,7 +54,6 @@ export interface TrialResult {
   endingBankroll: number;
   handsPlayed: number;
   bankrollHistory: number[];
-  rounds?: RoundResult[];
 }
 
 export interface Stats {

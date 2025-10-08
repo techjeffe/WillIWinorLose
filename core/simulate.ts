@@ -1,7 +1,7 @@
 import { createRng } from "./rng";
 import { Shoe } from "./shoe";
 import { playRound } from "./game";
-import { Histogram, RoundResult, SimConfig, Stats, TrialResult } from "./types";
+import { Histogram, SimConfig, Stats, TrialResult } from "./types";
 import { confidenceInterval, createRunningStats, push, riskOfRuinApprox, stdev } from "./stats";
 
 function buildHistogram(values: number[], binCount = 21): Histogram {
@@ -35,24 +35,17 @@ export function simulateRun(cfg: SimConfig, bankroll: number): {
   const handStats = createRunningStats();
   const runStats = createRunningStats();
 
-  const captureFirstTrial = cfg.captureFirstTrial ?? false;
-
   for (let t = 0; t < trials; t += 1) {
     const shoe = new Shoe(cfg.rules, rng);
     let currentBankroll = bankroll;
     let handsPlayed = 0;
     const history = [currentBankroll];
-    const roundRecords: RoundResult[] | undefined =
-      captureFirstTrial && t === 0 ? [] : undefined;
     while (handsPlayed < cfg.hands && currentBankroll >= cfg.bet) {
       const round = playRound(shoe, cfg.rules, cfg.bet, currentBankroll);
       currentBankroll += round.net;
       history.push(currentBankroll);
       handsPlayed += 1;
       push(handStats, round.net);
-      if (roundRecords) {
-        roundRecords.push(round);
-      }
     }
     const profit = currentBankroll - bankroll;
     push(runStats, profit);
@@ -61,7 +54,6 @@ export function simulateRun(cfg: SimConfig, bankroll: number): {
       endingBankroll: currentBankroll,
       handsPlayed,
       bankrollHistory: history,
-      rounds: roundRecords,
     });
   }
 

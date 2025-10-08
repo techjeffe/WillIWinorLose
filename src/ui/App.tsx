@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_RULES,
-  Hand,
-  HandResult,
   Histogram,
   RoundEvent,
   RoundResult,
@@ -26,17 +24,6 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
 });
 
-function cardsToString(hand: Hand): string {
-  return hand.cards.map((card) => card.rank).join(" ");
-}
-
-function formatHandResultLine(hand: HandResult, index: number): string {
-  const prefix = hand.hand.doubled ? "Double" : hand.hand.isSplit ? "Split" : "Hand";
-  const cards = cardsToString(hand.hand);
-  const payout = `${hand.payout >= 0 ? "+" : ""}${hand.payout.toFixed(2)}`;
-  return `${prefix} ${index + 1}: ${hand.outcome} (${payout}) [${cards}]`;
-}
-
 const dealerActionLabel: Record<RoundEvent["type"], string> = {
   deal: "Deal",
   action: "Action",
@@ -48,36 +35,6 @@ const dealerActionLabel: Record<RoundEvent["type"], string> = {
 type Mode = "play" | "simulate";
 
 const PLAY_DELAY_MS = 350;
-const MAX_LOG_ENTRIES = 500;
-
-type LogSource = "play" | "simulate";
-
-interface RoundLogEntry {
-  kind: "round";
-  id: number;
-  source: LogSource;
-  trial?: number;
-  handNumber: number;
-  net: number;
-  hands: HandResult[];
-  dealerHand: Hand;
-  bankrollAfter?: number;
-}
-
-interface SimulationSummaryLogEntry {
-  kind: "summary";
-  id: number;
-  source: "simulate";
-  trial: number;
-  profit: number;
-  endingBankroll: number;
-  handsPlayed: number;
-}
-
-type LogEntry = RoundLogEntry | SimulationSummaryLogEntry;
-type LogEntryDraft =
-  | Omit<RoundLogEntry, "id">
-  | Omit<SimulationSummaryLogEntry, "id">;
 
 function formatEvent(event: RoundEvent): string {
   switch (event.type) {
@@ -111,176 +68,35 @@ function HouseEdge({ evPerHand, bet }: { evPerHand: number; bet: number }) {
 }
 
 function HistogramChart({ histogram }: { histogram: Histogram }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
-  const [heightScale, setHeightScale] = useState(1);
-
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element) {
-      return;
-    }
-
-    const updateWidth = () => {
-      setContainerWidth(element.clientWidth);
-    };
-
-    updateWidth();
-
-    if (typeof ResizeObserver === "undefined") {
-      if (typeof window !== "undefined") {
-        window.addEventListener("resize", updateWidth);
-        return () => window.removeEventListener("resize", updateWidth);
-      }
-      return;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.target === element) {
-          setContainerWidth(entry.contentRect.width);
-        }
-      }
-    });
-
-    observer.observe(element);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (histogram.counts.length === 0 && heightScale !== 1) {
-      setHeightScale(1);
-    }
-  }, [histogram.counts.length, heightScale]);
-
-  const width = containerWidth > 0 ? containerWidth : 420;
-  const baseHeight = Math.max(200, width * 0.4);
-  const height = baseHeight * heightScale;
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      return;
-    }
-
-    const pixelRatio = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
-    canvas.width = width * pixelRatio;
-    canvas.height = height * pixelRatio;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return;
-    }
-
-    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    context.clearRect(0, 0, width, height);
-
-    context.fillStyle = "#0f172a";
-    context.fillRect(0, 0, width, height);
-
-    const counts = histogram.counts;
-    if (counts.length === 0) {
-      context.fillStyle = "#94a3b8";
-      context.font = "13px sans-serif";
-      context.textAlign = "center";
-      context.textBaseline = "middle";
-      context.fillText("Run a simulation to see the distribution.", width / 2, height / 2);
-      return;
-    }
-
-    const bins = histogram.bins;
-    const maxCount = Math.max(...counts);
-    const paddingTop = 20;
-    const paddingBottom = 32;
-    const paddingSides = 12;
-    const innerWidth = width - paddingSides * 2;
-    const innerHeight = height - paddingTop - paddingBottom;
-    const barWidth = innerWidth / counts.length;
-    const gap = Math.min(14, barWidth * 0.35);
-
-    // grid lines
-    const gridLines = 4;
-    context.save();
-    context.strokeStyle = "rgba(148, 163, 184, 0.2)";
-    context.lineWidth = 1;
-    context.font = "10px sans-serif";
-    context.fillStyle = "#64748b";
-    context.textAlign = "left";
-    context.textBaseline = "bottom";
-    for (let i = 1; i <= gridLines; i += 1) {
-      const ratio = i / (gridLines + 1);
-      const y = paddingTop + innerHeight * (1 - ratio);
-      context.beginPath();
-      context.moveTo(paddingSides, y);
-      context.lineTo(width - paddingSides, y);
-      context.stroke();
-      const labelValue = Math.round(maxCount * ratio);
-      if (labelValue > 0) {
-        context.fillText(String(labelValue), paddingSides + 4, y - 2);
-      }
-    }
-    context.restore();
-
-    counts.forEach((count, idx) => {
-      const normalized = maxCount === 0 ? 0 : count / maxCount;
-      const barHeight = normalized * innerHeight;
-      const x = paddingSides + idx * barWidth + gap / 2;
-      const y = paddingTop + innerHeight - barHeight;
-
-      context.fillStyle = "rgba(16, 185, 129, 0.78)";
-      context.fillRect(x, y, Math.max(barWidth - gap, 2), barHeight);
-
-      context.fillStyle = "#94a3b8";
-      context.font = "10px sans-serif";
-      context.textAlign = "center";
-      context.textBaseline = "top";
-      context.fillText(`${Math.round(bins[idx])}`, paddingSides + idx * barWidth + barWidth / 2, height - paddingBottom + 6);
-    });
-
-    // axis baseline
-    context.fillStyle = "#1e293b";
-    context.fillRect(paddingSides, paddingTop + innerHeight, innerWidth, 1);
-  }, [histogram, width, height]);
-
-  const showReset = Math.abs(heightScale - 1) > 0.05;
-
+  if (histogram.counts.length === 0) {
+    return <p className="text-sm text-slate-400">Run a simulation to see the distribution.</p>;
+  }
+  const width = 420;
+  const height = 160;
+  const maxCount = Math.max(...histogram.counts);
+  const barWidth = width / histogram.counts.length;
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-3 text-xs text-slate-400">
-        <label className="flex items-center gap-2 w-full">
-          <span className="whitespace-nowrap">Vertical scale</span>
-          <input
-            type="range"
-            min={0.8}
-            max={2}
-            step={0.1}
-            value={heightScale}
-            onChange={(event) => setHeightScale(Number(event.target.value))}
-            className="flex-1 accent-emerald-400"
-            aria-label="Histogram vertical scale"
-          />
-          <span className="tabular-nums text-slate-300">{heightScale.toFixed(1)}×</span>
-        </label>
-        <button
-          type="button"
-          onClick={() => setHeightScale(1)}
-          className="px-2 py-1 rounded bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-          disabled={!showReset}
-        >
-          Reset
-        </button>
-      </div>
-      <div ref={containerRef} className="w-full">
-        <canvas ref={canvasRef} className="block w-full rounded-lg bg-slate-900 shadow-inner" />
-      </div>
-      <p className="text-[11px] text-slate-500">Resize the window or adjust the scale to focus on distribution tails.</p>
-    </div>
+    <svg width={width} height={height} className="bg-slate-900 rounded-md">
+      {histogram.counts.map((count, idx) => {
+        const barHeight = maxCount === 0 ? 0 : (count / maxCount) * (height - 20);
+        const x = idx * barWidth;
+        const y = height - barHeight - 10;
+        return (
+          <g key={idx}>
+            <rect
+              x={x + 4}
+              y={y}
+              width={barWidth - 8}
+              height={barHeight}
+              className="fill-emerald-400/80"
+            />
+            <text x={x + barWidth / 2} y={height - 2} textAnchor="middle" className="fill-slate-400 text-[10px]">
+              {Math.round(histogram.bins[idx])}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -355,61 +171,17 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulation, setSimulation] = useState<SimulationOutput | null>(null);
-  const [handLog, setHandLog] = useState<LogEntry[]>([]);
-  const [logTrimmed, setLogTrimmed] = useState(false);
 
   const rngRef = useRef(createRng(seed));
   const shoeRef = useRef<Shoe | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const bankrollRef = useRef(currentBankroll);
-  const logCounterRef = useRef(0);
-  const logContainerRef = useRef<HTMLDivElement | null>(null);
-  const handsPlayedRef = useRef(handsPlayed);
 
   useEffect(() => {
     bankrollRef.current = currentBankroll;
   }, [currentBankroll]);
 
-  useEffect(() => {
-    handsPlayedRef.current = handsPlayed;
-  }, [handsPlayed]);
-
-  useEffect(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-    }
-  }, [handLog]);
-
-  const appendLogEntries = useCallback((entries: LogEntryDraft[]) => {
-    if (entries.length === 0) return;
-    let nextId = logCounterRef.current;
-    const withIds = entries.map((entry) => {
-      const item = { ...entry, id: nextId } as LogEntry;
-      nextId += 1;
-      return item;
-    });
-    logCounterRef.current = nextId;
-    let trimmed = false;
-    setHandLog((prev) => {
-      const combined = [...prev, ...withIds];
-      if (combined.length > MAX_LOG_ENTRIES) {
-        trimmed = true;
-        return combined.slice(combined.length - MAX_LOG_ENTRIES);
-      }
-      return combined;
-    });
-    if (trimmed) {
-      setLogTrimmed(true);
-    }
-  }, []);
-
-  const clearLog = useCallback(() => {
-    setHandLog([]);
-    setLogTrimmed(false);
-    logCounterRef.current = 0;
-  }, []);
-
-  const initializeEngine = useCallback(() => {
+  const resetEngine = useCallback(() => {
     rngRef.current = createRng(seed);
     shoeRef.current = new Shoe(rules, rngRef.current);
     setCurrentBankroll(initialBankroll);
@@ -420,8 +192,8 @@ export default function App() {
   }, [initialBankroll, rules, seed]);
 
   useEffect(() => {
-    initializeEngine();
-  }, [initializeEngine]);
+    resetEngine();
+  }, [resetEngine]);
 
   const ensureWorker = useCallback(() => {
     if (!workerRef.current) {
@@ -446,24 +218,15 @@ export default function App() {
     }
   }, []);
 
-  const handleReset = useCallback(() => {
-    initializeEngine();
-    setSimulation(null);
-    setIsSimulating(false);
-    setMode("play");
-    clearLog();
-  }, [clearLog, initializeEngine]);
-
   const playHands = useCallback(
     async (count: number) => {
       if (isPlaying) return;
       if (!shoeRef.current) {
-        initializeEngine();
+        resetEngine();
       }
       if (!shoeRef.current) return;
       setMode("play");
       setIsPlaying(true);
-      const startIndex = handsPlayedRef.current;
       try {
         for (let i = 0; i < count; i += 1) {
           if (bankrollRef.current < bet) {
@@ -473,26 +236,14 @@ export default function App() {
           await animateEvents(round.events);
           setLastRound(round);
           bankrollRef.current += round.net;
-          const newBankroll = bankrollRef.current;
-          setCurrentBankroll(newBankroll);
+          setCurrentBankroll(bankrollRef.current);
           setHandsPlayed((prev) => prev + 1);
-          appendLogEntries([
-            {
-              kind: "round",
-              source: "play",
-              handNumber: startIndex + i + 1,
-              net: round.net,
-              hands: round.hands,
-              dealerHand: round.dealerHand,
-              bankrollAfter: newBankroll,
-            },
-          ]);
         }
       } finally {
         setIsPlaying(false);
       }
     },
-    [animateEvents, appendLogEntries, bet, initializeEngine, isPlaying, rules]
+    [animateEvents, bet, isPlaying, resetEngine, rules]
   );
 
   const handleSimulate = useCallback(() => {
@@ -506,44 +257,13 @@ export default function App() {
       hands: handsToPlay,
       seed,
       trials,
-      captureFirstTrial: true,
     };
     worker.onmessage = (event: MessageEvent<SimulationOutput>) => {
-      const payload = event.data;
-      setSimulation(payload);
+      setSimulation(event.data);
       setIsSimulating(false);
-      const entries: LogEntryDraft[] = [];
-      const firstTrial = payload.results[0];
-      if (firstTrial?.rounds) {
-        let runningBankroll = initialBankroll;
-        firstTrial.rounds.forEach((round, idx) => {
-          runningBankroll += round.net;
-          entries.push({
-            kind: "round",
-            source: "simulate",
-            trial: 1,
-            handNumber: idx + 1,
-            net: round.net,
-            hands: round.hands,
-            dealerHand: round.dealerHand,
-            bankrollAfter: runningBankroll,
-          });
-        });
-      }
-      payload.results.forEach((trial, idx) => {
-        entries.push({
-          kind: "summary",
-          source: "simulate",
-          trial: idx + 1,
-          profit: trial.profit,
-          endingBankroll: trial.endingBankroll,
-          handsPlayed: trial.handsPlayed,
-        });
-      });
-      appendLogEntries(entries);
     };
     worker.postMessage({ config, bankroll: initialBankroll });
-  }, [appendLogEntries, ensureWorker, rules, bet, handsToPlay, seed, trials, initialBankroll]);
+  }, [ensureWorker, rules, bet, handsToPlay, seed, trials, initialBankroll]);
 
   const handleExport = useCallback(() => {
     if (!simulation) return;
@@ -738,7 +458,7 @@ export default function App() {
             </button>
             <button
               className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold rounded-md"
-              onClick={handleReset}
+              onClick={resetEngine}
             >
               Reset
             </button>
@@ -747,35 +467,6 @@ export default function App() {
             Animated play uses the same deterministic shoe as the fast Monte-Carlo run when a seed is supplied.
           </p>
         </section>
-
-        {mode === "simulate" && (
-          <section className="bg-slate-900/60 rounded-xl p-6 space-y-6">
-            <h2 className="text-xl font-semibold text-slate-100">Simulation mode</h2>
-            {simulation ? (
-              <>
-                <StatsPanel stats={simulation.stats} bet={bet} />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <h3 className="text-slate-200 font-semibold mb-2">Outcome histogram</h3>
-                    <HistogramChart histogram={simulation.histogram} />
-                  </div>
-                  <div>
-                    <h3 className="text-slate-200 font-semibold mb-2">First trial bankroll</h3>
-                    <BankrollChart history={firstHistory} />
-                  </div>
-                </div>
-                <button
-                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold rounded-md"
-                  onClick={handleExport}
-                >
-                  Export CSV
-                </button>
-              </>
-            ) : (
-              <p className="text-slate-400 text-sm">Run a simulation to compute EV, risk, and distribution.</p>
-            )}
-          </section>
-        )}
 
         {mode === "play" && (
           <section className="bg-slate-900/60 rounded-xl p-6 space-y-4">
@@ -817,90 +508,34 @@ export default function App() {
           </section>
         )}
 
-        <section className="bg-slate-900/60 rounded-xl p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-slate-100">Hand history</h2>
-              <p className="text-xs text-slate-400">
-                Most recent hands from animated play and fast simulations appear here.
-              </p>
-            </div>
-            <button
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200"
-              onClick={clearLog}
-              disabled={handLog.length === 0}
-            >
-              Clear log
-            </button>
-          </div>
-          {logTrimmed && (
-            <p className="text-xs text-amber-400">Only the most recent {MAX_LOG_ENTRIES} entries are shown.</p>
-          )}
-          <div
-            ref={logContainerRef}
-            className="bg-slate-900/70 rounded-lg max-h-80 overflow-y-auto divide-y divide-slate-800"
-          >
-            {handLog.length === 0 ? (
-              <p className="text-sm text-slate-400 p-4">Play or simulate to populate the history.</p>
-            ) : (
-              handLog.map((entry) => {
-                if (entry.kind === "round") {
-                  const netClass =
-                    entry.net > 0
-                      ? "text-emerald-400"
-                      : entry.net < 0
-                      ? "text-rose-400"
-                      : "text-slate-200";
-                  return (
-                    <div key={entry.id} className="p-4 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-                        <span>
-                          {entry.source === "play" ? "Play" : `Sim trial ${entry.trial}`} · Hand {entry.handNumber}
-                        </span>
-                        <span className={`font-semibold ${netClass}`}>
-                          {numberFormatter.format(entry.net)}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-300">
-                        Dealer: [{cardsToString(entry.dealerHand)}]
-                      </div>
-                      <ul className="text-xs text-slate-200 space-y-1">
-                        {entry.hands.map((hand, idx) => (
-                          <li key={idx}>{formatHandResultLine(hand, idx)}</li>
-                        ))}
-                      </ul>
-                      {entry.bankrollAfter !== undefined && (
-                        <div className="text-xs text-slate-400">
-                          Bankroll after hand: {numberFormatter.format(entry.bankrollAfter)}
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-                const profitClass =
-                  entry.profit > 0
-                    ? "text-emerald-400"
-                    : entry.profit < 0
-                    ? "text-rose-400"
-                    : "text-slate-200";
-                return (
-                  <div key={entry.id} className="p-4 space-y-1 text-xs text-slate-300">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-200">
-                        Simulation trial {entry.trial} summary
-                      </span>
-                      <span className={`font-semibold ${profitClass}`}>
-                        {numberFormatter.format(entry.profit)}
-                      </span>
-                    </div>
-                    <div>Hands played: {entry.handsPlayed}</div>
-                    <div>Ending bankroll: {numberFormatter.format(entry.endingBankroll)}</div>
+        {mode === "simulate" && (
+          <section className="bg-slate-900/60 rounded-xl p-6 space-y-6">
+            <h2 className="text-xl font-semibold text-slate-100">Simulation mode</h2>
+            {simulation ? (
+              <>
+                <StatsPanel stats={simulation.stats} bet={bet} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="text-slate-200 font-semibold mb-2">Outcome histogram</h3>
+                    <HistogramChart histogram={simulation.histogram} />
                   </div>
-                );
-              })
+                  <div>
+                    <h3 className="text-slate-200 font-semibold mb-2">First trial bankroll</h3>
+                    <BankrollChart history={firstHistory} />
+                  </div>
+                </div>
+                <button
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold rounded-md"
+                  onClick={handleExport}
+                >
+                  Export CSV
+                </button>
+              </>
+            ) : (
+              <p className="text-slate-400 text-sm">Run a simulation to compute EV, risk, and distribution.</p>
             )}
-          </div>
-        </section>
+          </section>
+        )}
       </main>
     </div>
   );
